@@ -1,4 +1,4 @@
 interface:
-  display_name: "Doubao Seedream 5"
-  short_description: "使用 Seedream 5.0 Pro 进行文生图、参考编辑、透明图编辑与图层拆分"
+  display_name: "Doubao Seedream 5.5"
+  short_description: "使用 Seedream 5.5 进行文生图、参考编辑、原生透明图、图层拆分与富文本 OCR"
   default_prompt: "使用 $doubao-seedream-5 理解我的图片创作需求，选择合适的尺寸、参考图与编辑模式，并调用官方 API 交付图片。"

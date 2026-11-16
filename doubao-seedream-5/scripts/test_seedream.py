@@ -70,7 +70,9 @@ class PayloadTest(unittest.TestCase):
     def test_defaults_and_prompt_preserved(self) -> None:
         text = "海报文字：你好 Hello مرحبا" * 40
         body = payload.prepare_payload({"prompt": text}, "generate")
-        self.assertEqual(body["model"], "doubao-seedream-5-0-pro-260628")
+        self.assertEqual(body["model"], "doubao-seedream-5-5-261028")
+        self.assertEqual(body["output_format"], "png")
+        self.assertEqual(body["background"], "auto")
         self.assertEqual(body["prompt"], text)
         self.assertEqual(body["size"], "2K")
         self.assertTrue(body["watermark"])
@@ -81,9 +83,8 @@ class PayloadTest(unittest.TestCase):
         body = {"model": payload.MODEL, "prompt": "融合图1与图10", "image": images,
                 "layer_decomposition": False, "size": "1.5K", "watermark": False,
                 "background": "opaque", "output_format": "png", "response_format": "b64_json",
-                "optimize_prompt_options": {"mode": "fast"}}
+                "optimize_prompt_options": {"mode": "standard"}}
         self.assertEqual(payload.prepare_payload(body, "edit"), body)
-        self.assertEqual(set(body), payload.FIELDS)
 
     def test_reject_unsupported_fields(self) -> None:
         fields = ["n", "seed", "mask", "quality", "strength", "negative_prompt", "guidance_scale",
@@ -96,6 +97,7 @@ class PayloadTest(unittest.TestCase):
         options = [{"model": "other"}, {"watermark": 1}, {"background": []}, {"size": None},
                    {"layer_decomposition": 0}, {"prompt": " "}, {"prompt": 42},
                    {"optimize_prompt_options": {"mode": "quality"}}, {"output_format": "webp"},
+                   {"optimize_prompt_options": {"mode": "fast"}},
                    {"optimize_prompt_options": {"mode": "standard", "extra": True}}]
         for option in options:
             with self.subTest(option=option), self.assertRaises(ValueError):
@@ -103,7 +105,7 @@ class PayloadTest(unittest.TestCase):
 
     def test_image_count_and_mode_mismatch(self) -> None:
         uri = "https://example.com/input.png"
-        for mode, count in [("generate", 1), ("edit", 0), ("edit", 11), ("layers", 0), ("layers", 2)]:
+        for mode, count in [("generate", 11), ("edit", 0), ("edit", 11), ("layers", 0), ("layers", 2)]:
             with self.subTest(mode=mode, count=count), self.assertRaises(ValueError):
                 payload.prepare_payload({"prompt": "改图", "image": [uri] * count}, mode)
         with self.assertRaises(ValueError):
@@ -122,6 +124,7 @@ class PayloadTest(unittest.TestCase):
         self.assertTrue(body["layer_decomposition"])
         self.assertEqual(body["size"], "auto")
         self.assertNotIn("prompt", body)
+        self.assertNotIn("background", body)
         for size in ["auto", "1K", "1.5K", "2K"]:
             payload.validate_size(size, layers=True)
         with self.assertRaises(ValueError):
@@ -147,23 +150,52 @@ class PayloadTest(unittest.TestCase):
         body = payload.prepare_payload(transparent, "edit")
         self.assertEqual(body["output_format"], "png")
         for extra in [{"image": data_uri(picture("JPEG", "RGB"), "jpeg")},
-                      {"image": data_uri(picture(mode="RGB"))}, {"output_format": "jpeg"},
+                      {"image": data_uri(picture(mode="RGB"))},
                       {"image": [transparent["image"]] * 2}]:
-            with self.subTest(extra=str(extra)[:40]), self.assertRaises(ValueError):
+            with self.subTest(extra=str(extra)[:40]):
                 payload.prepare_payload({**transparent, **extra}, "edit")
         with self.assertRaises(ValueError):
-            payload.prepare_payload({"prompt": "透明猫", "background": "transparent"}, "generate")
+            payload.prepare_payload({**transparent, "output_format": "jpeg"}, "edit")
+        payload.prepare_payload({"prompt": "透明猫", "background": "transparent"}, "generate")
+
+    def test_generate_with_ten_rgb_references(self) -> None:
+        images = [data_uri(picture("JPEG", "RGB"), "jpeg")] * 10
+        body = payload.prepare_payload({"prompt": "参考风格创作", "image": images,
+                                        "background": "transparent"}, "generate")
+        self.assertEqual(body["image"], images)
+
+    def test_auto_background_and_generation_layer_options(self) -> None:
+        body = payload.prepare_payload({"prompt": "照片", "output_format": "jpeg"}, "generate")
+        self.assertEqual(body["background"], "auto")
+        for mode in ["generate", "edit"]:
+            with self.subTest(mode=mode), self.assertRaises(ValueError):
+                payload.prepare_payload({"prompt": "照片", "image": "https://example.com/a.png",
+                                         "layer_decomposition_options": {}}, mode)
+
+    def test_layer_options_and_rejected_background(self) -> None:
+        source = {"image": "https://example.com/poster.png"}
+        for maximum in [2, 30, 100]:
+            options = {"max_images": maximum, "text_recognition": True}
+            body = payload.prepare_payload({**source, "layer_decomposition_options": options}, "layers")
+            self.assertEqual(body["layer_decomposition_options"], options)
+        for options in [None, [], {"max_images": 1}, {"max_images": 101}, {"max_images": True},
+                        {"max_images": 2.5}, {"text_recognition": 1}, {"unknown": True}]:
+            with self.subTest(options=options), self.assertRaises(ValueError):
+                payload.prepare_payload({**source, "layer_decomposition_options": options}, "layers")
+        for background in ["auto", "opaque", "transparent"]:
+            with self.subTest(background=background), self.assertRaises(ValueError):
+                payload.prepare_payload({**source, "background": background}, "layers")
 
     def test_input_formats_and_limits(self) -> None:
         for format in ["JPEG", "PNG", "WEBP", "BMP", "TIFF", "GIF"]:
             with self.subTest(format=format):
-                payload.check_image(picture(format, "RGB"), layers=False, transparent=False)
+                payload.check_image(picture(format, "RGB"), layers=False)
         for raw, layers in [(picture(size=(14, 20)), False), (picture(size=(600, 20)), False),
                             (picture(size=(511, 512)), True), (picture("WEBP"), True), (b"bad", False)]:
             with self.subTest(layers=layers, length=len(raw)), self.assertRaises(ValueError):
-                payload.check_image(raw, layers=layers, transparent=False)
+                payload.check_image(raw, layers=layers)
         with patch.object(payload, "MAX_INPUT_BYTES", 10), self.assertRaises(ValueError):
-            payload.check_image(picture(), layers=False, transparent=False)
+            payload.check_image(picture(), layers=False)
 
     def test_url_rules(self) -> None:
         payload.http_url("http://example.com/a.png")
@@ -295,7 +327,8 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(Handler.requests, [])
 
     def test_rejected_inputs_before_post(self) -> None:
-        for args in [("--size", "4K"), ("--timeout", "nan"), ("--background", "transparent")]:
+        for args in [("--size", "4K"), ("--timeout", "nan"),
+                     ("--background", "transparent", "--output-format", "jpeg")]:
             with self.subTest(args=args):
                 self.assertEqual(self.generate(*args)[0], 1)
         self.assertEqual(Handler.requests, [])
@@ -398,6 +431,23 @@ class IntegrationTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertFalse((self.out / "image-00.png").exists())
 
+    def test_auto_background_checks_returned_transparency(self) -> None:
+        self.queue({"data": [image_item(picture(mode="RGB"), background="transparent")]})
+        self.assertEqual(self.generate()[0], 1)
+        self.assertFalse((self.out / "image-00.png").exists())
+
+    def test_layer_request_json_and_cli_conflict(self) -> None:
+        request = self.root / "layers.json"
+        transport.save_json(request, {"image": "https://example.com/a.png",
+                                      "layer_decomposition_options": {"max_images": 2,
+                                                                      "text_recognition": True}})
+        code, stdout, _ = self.cli("layers", "--request", str(request), "--dry-run")
+        self.assertEqual(code, 0)
+        self.assertEqual(json.loads(stdout)["request"]["layer_decomposition_options"]["max_images"], 2)
+        code, _, _ = self.cli("layers", "--request", str(request), "--max-images", "3", "--dry-run")
+        self.assertEqual(code, 1)
+        self.assertEqual(Handler.requests, [])
+
     def test_malformed_layer_box_is_clean_error(self) -> None:
         self.queue({"data": [image_item(z_index=0), image_item(z_index=1, bounding_box="bad")]})
         code, _, stderr = self.cli("layers", "--image", "https://example.com/a.png", "--out", str(self.out))
@@ -420,15 +470,22 @@ class IntegrationTest(unittest.TestCase):
                 code, _, _ = self.cli("download", "--response", str(source), "--out", str(self.root / str(index)))
                 self.assertEqual(code, 1)
 
-    def test_full_sixteen_layers_and_base(self) -> None:
+    def test_full_ninety_nine_layers_and_base(self) -> None:
         data = [image_item(z_index=0)] + [
             image_item(z_index=index, bounding_box={"absolute": [0, 0, 100, 100]})
-            for index in range(1, 17)]
+            for index in range(1, 100)]
+        ocr = {"text": "标题", "lines": [{"runs": [{"text": "标题", "style": {"bold": True}}]}]}
+        data[1]["text_recognition"] = ocr
         self.queue({"data": data})
-        code, stdout, _ = self.cli("layers", "--image", "https://example.com/a.png", "--out", str(self.out))
+        code, stdout, _ = self.cli("layers", "--image", "https://example.com/a.png",
+                                   "--max-images", "100", "--text-recognition", "--out", str(self.out))
         self.assertEqual(code, 0)
-        self.assertEqual(len(json.loads(stdout)["files"]), 17)
-        self.assertEqual(len(list(self.out.glob("image-*.png"))), 17)
+        self.assertEqual(len(json.loads(stdout)["files"]), 100)
+        self.assertEqual(len(list(self.out.glob("image-*.png"))), 100)
+        self.assertEqual(json.loads(stdout)["files"][1]["metadata"]["text_recognition"], ocr)
+        self.assertEqual(Handler.requests[0]["body"]["layer_decomposition_options"],
+                         {"max_images": 100, "text_recognition": True})
+        self.assertNotIn("background", Handler.requests[0]["body"])
         with self.assertRaises(ValueError):
             transport.response_items({"data": data + [data[-1]]}, layers=True)
 

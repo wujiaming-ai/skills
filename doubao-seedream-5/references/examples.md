@@ -57,6 +57,16 @@ uv run --with Pillow python <SKILL_DIR>/scripts/seedream.py edit \
   --size 2K --optimize standard --out /absolute/output/composite
 ```
 
+## 原生透明图
+
+```bash
+uv run --with Pillow python <SKILL_DIR>/scripts/seedream.py generate \
+  --prompt '透明背景上的银色徽章，仅保留徽章主体与自然边缘' \
+  --background transparent --out /absolute/output/rgba-badge
+```
+
+无需参考图。图生透明素材可传入最多 10 张参考图，JPEG 等不带透明通道的输入也支持。
+
 ## 保留透明背景的编辑
 
 ```bash
@@ -69,12 +79,12 @@ uv run --with Pillow python <SKILL_DIR>/scripts/seedream.py edit \
 
 ```bash
 uv run --with Pillow python <SKILL_DIR>/scripts/seedream.py layers \
-  --image /absolute/input/poster.png --size auto \
+  --image /absolute/input/poster.png --size auto --max-images 30 --text-recognition \
   --prompt '将主标题、人物与前景装饰分别拆为图层。' \
   --output-format jpeg --out /absolute/output/poster-layers
 ```
 
-省略prompt可自动拆图。输出JPEG底图、透明PNG图层及包含坐标、层级的元数据。
+省略prompt可自动拆图。输出JPEG底图、透明PNG图层及包含坐标、层级、规整文字 OCR 的元数据。`--max-images` 范围 2–100，包含底图；默认 30，不保证生成满额。OCR 默认关闭，非文字、艺术字和手写体图层可能不返回 OCR。拆图不得传入 `--background`。
 
 ## 完整官方JSON与预览
 
@@ -82,12 +92,12 @@ uv run --with Pillow python <SKILL_DIR>/scripts/seedream.py layers \
 
 ```json
 {
-  "model": "doubao-seedream-5-0-pro-260628",
+  "model": "doubao-seedream-5-5-261028",
   "prompt": "把图1杯子改为蓝色，保持轮廓和背景不变",
   "image": "https://example.com/your-public-image.png",
   "layer_decomposition": false,
   "size": "1.5K",
-  "optimize_prompt_options": {"mode": "fast"},
+  "optimize_prompt_options": {"mode": "standard"},
   "background": "opaque",
   "output_format": "png",
   "response_format": "b64_json",
