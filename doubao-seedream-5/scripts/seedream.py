@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Seedream 5.0 Pro CLI；Python 3.10+，依赖 Pillow。"""
+"""Seedream 5.5 CLI；Python 3.10+，依赖 Pillow。"""
 
 from __future__ import annotations
 
@@ -26,9 +26,12 @@ def generation_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--prompt")
     parser.add_argument("--image", action="append", help="本地图片、URL 或 Data URI，按图号顺序重复传入")
     parser.add_argument("--size")
-    parser.add_argument("--optimize", choices=["standard", "fast"])
+    parser.add_argument("--optimize", choices=["standard"])
     parser.add_argument("--output-format", choices=["jpeg", "png"])
-    parser.add_argument("--background", choices=["opaque", "transparent"])
+    parser.add_argument("--background", choices=["auto", "opaque", "transparent"])
+    parser.add_argument("--max-images", type=int, help="仅拆图：最大输出总数 2–100（含底图），默认 30")
+    parser.add_argument("--text-recognition", action=argparse.BooleanOptionalAction, default=None,
+                        help="仅拆图：返回规整文字的富文本 OCR，默认关闭")
     parser.add_argument("--response-format", choices=["url", "b64_json"])
     parser.add_argument("--watermark", action=argparse.BooleanOptionalAction, default=None)
     parser.add_argument("--dry-run", action="store_true", help="仅校验并预览，不需要密钥且不联网")
@@ -37,7 +40,7 @@ def generation_arguments(parser: argparse.ArgumentParser) -> None:
 def parser() -> argparse.ArgumentParser:
     root = argparse.ArgumentParser(description=__doc__)
     commands = root.add_subparsers(dest="command", required=True)
-    for name, help_text in [("generate", "文生图"), ("edit", "图生图/参考编辑"),
+    for name, help_text in [("generate", "文生图/参考创作"), ("edit", "图生图/参考编辑"),
                             ("layers", "图层拆分"), ("download", "从保存的响应恢复下载，不重新生成")]:
         command = commands.add_parser(name, help=help_text)
         command.add_argument("--out", type=Path, help="全新输出目录，拒绝覆盖已有目录")
@@ -54,6 +57,10 @@ def request_body(args: argparse.Namespace) -> dict[str, Any]:
     supplied = {name: getattr(args, name) for name in names if getattr(args, name) is not None}
     if args.optimize is not None:
         supplied["optimize_prompt_options"] = {"mode": args.optimize}
+    layer_options = {name: getattr(args, name) for name in ("max_images", "text_recognition")
+                     if getattr(args, name) is not None}
+    if layer_options:
+        supplied["layer_decomposition_options"] = layer_options
     if args.request:
         require(not supplied, "--request 不能与生成参数混用")
         return prepare_payload(read_json(args.request.expanduser()), args.command)
@@ -78,7 +85,7 @@ def execute(args: argparse.Namespace) -> dict[str, Any]:
     try:
         response = post_images(body, directory, args.timeout)
         return save_images(response, directory, args.timeout, layers=args.command == "layers",
-                           transparent=body["background"] == "transparent")
+                           transparent=body.get("background") == "transparent")
     except (ValueError, RuntimeError, OSError, HTTPException) as exc:
         save_json(directory / "failure.json", {"error": str(exc), "automatic_retry": False})
         raise

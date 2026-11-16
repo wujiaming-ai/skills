@@ -1,11 +1,11 @@
 ---
 name: doubao-seedream-5
-description: 使用火山方舟官方 Seedream 5.0 Pro API 进行文生图、图生图与图片编辑。适用于多图参考融合、文字海报、坐标局部编辑、透明图编辑和图层拆分；根据创作意图选择参数并交付图片。
+description: 使用火山方舟官方 Seedream 5.5 API 进行文生图、图生图与图片编辑。适用于多图参考融合、文字海报、坐标局部编辑、原生透明图、图层拆分和富文本 OCR；根据创作意图选择参数并交付图片。
 ---
 
-# Doubao Seedream 5
+# Doubao Seedream 5.5
 
-模型固定为 `doubao-seedream-5-0-pro-260628`，密钥只读取 `SEEDREAM_API_KEY`。使用官方 `POST https://ark.cn-beijing.volces.com/api/v3/images/generations` JSON 协议。文生图、图生图和图层拆分均使用这个端点。
+模型固定为 `doubao-seedream-5-5-261028`，密钥只读取 `SEEDREAM_API_KEY`。使用官方 `POST https://ark.cn-beijing.volces.com/api/v3/images/generations` JSON 协议。文生图、图生图和图层拆分均使用这个端点。参数按[官方图片生成 API](https://console.volcengine.com/ark/region:cn-beijing/docs/image-generation-api)核对，具体约束见 [API 能力与约束](references/api.md)。
 
 ## 理解意图并选择模式
 
@@ -24,14 +24,14 @@ description: 使用火山方舟官方 Seedream 5.0 Pro API 进行文生图、图
 | 从文字创作图片、海报、插画 | `generate`；slug 按用途选，如 `product-mockup`、`ads-marketing`、`illustration-story`；默认 2K、standard；在 prompt 中说明比例及画面内容 |
 | 编辑现有图片或融合参考素材 | `edit`；1–10 张图，严格保持图号与输入顺序，写清每张图提供什么；slug 如 `precise-object-edit`、`compositing` |
 | 指定位置改物体、跨图移动主体 | `edit`；slug `coordinate-edit`；标注图或 prompt 内 `<point>` / `<bbox>` |
-| 修改带透明通道的素材并保留透明背景 | `edit --background transparent`；slug `transparent-edit`；单张已有透明通道的参考图，输出 PNG |
-| 把设计稿拆成可编辑底图与元素 | `layers`；slug `layer-decompose`；单张 PNG/JPEG，可省略 prompt 自动拆分，默认 size=auto |
+| 生成透明素材、抠图或保留透明背景编辑 | `generate --background transparent` / `edit --background transparent`；slug `transparent-edit` 或 `background-extraction`；支持无参考图或最多 10 张参考图，输入无需透明通道，输出 PNG |
+| 把设计稿拆成可编辑底图与元素 | `layers`；slug `layer-decompose`；单张 PNG/JPEG，可省略 prompt 自动拆分，默认 size=auto；`--max-images 2–100` 控制含底图总数，默认 30；`--text-recognition` 返回规整文字 OCR |
 
 需求已经具体时只做结构化归一，不加未被暗示的人物、品牌、标语或情节。
 
 阅读 [意图与提示词指南](references/intent-and-prompts.md)：意图判定、接续创作、核心资产、事实与文案边界、提示词结构与具体度策略。画面骨架与阅读顺序见 [构图决策](references/composition.md)，风格、色彩与完成度收尾见 [美学与完成度](references/aesthetics.md)；按需读取，不一次加载全部参考。需要精确尺寸、完整 JSON 或排查参数冲突时阅读 [API 能力与约束](references/api.md)。[命令示例](references/examples.md) 提供可直接调整的调用方式。
 
-能力按需使用：质量优先选 `standard`；用户明确要求更快时选 `fast`。默认保留水印，按用户需求通过 `--no-watermark` 关闭。JPEG适合照片；PNG适合透明素材和需要无损交付的设计稿。不为“利用能力”添加与需求无关的参数。
+提示词优化仅支持 `standard`。默认输出 PNG、`background=auto`，由模型根据提示词和输出格式判断透明度；明确需要透明素材时指定 `transparent`，需要不透明时指定 `opaque`。默认保留水印，按用户需求通过 `--no-watermark` 关闭。JPEG适合照片；PNG适合透明素材和需要无损交付的设计稿。不为“利用能力”添加与需求无关的参数。
 
 ## 调用
 
@@ -59,7 +59,7 @@ description: 使用火山方舟官方 Seedream 5.0 Pro API 进行文生图、图
 
 生成是同步请求，脚本保存 `response.json`、`request-preview.json`、所有图片及 `manifest.json`。使用全新输出目录，避免覆盖。只有 CLI 返回0、`manifest.complete=true` 且真实图片文件可解码时，才报告技术交付成功。继续查看实际图片，核对主体、文字、构图和透明背景；接口成功不代表创作效果符合需求。
 
-图片在Codex中用绝对路径Markdown图片语法展示。拆图交付底图、全部PNG图层及元数据，不能只取 `data[0]`。还原方式：按 `z_index` 升序，将各图层缩放为 `bounding_box.absolute` 的宽高，再叠加到该位置；图层文件原生尺寸可能不同。
+图片在Codex中用绝对路径Markdown图片语法展示。拆图交付底图、全部PNG图层及元数据；开启 OCR 时保留完整 `text_recognition`，非规整文字可能不返回 OCR。不能只取 `data[0]`。还原方式：按 `z_index` 升序，将各图层缩放为 `bounding_box.absolute` 的宽高，再叠加到该位置；图层文件原生尺寸可能不同。
 
 URL有效期24小时，及时下载。部分下载失败时说明已保存数量和失败原因，使用 `download --response .../response.json --out <全新目录>` 恢复；无需密钥或重新生成。响应可能含提示词、签名图片URL或Base64，作为用户私有产物保存，不提交到仓库。
 
@@ -67,7 +67,8 @@ URL有效期24小时，及时下载。部分下载失败时说明已保存数量
 
 ## 模型边界
 
-- Pro普通请求一次生成一张图；不支持组图、`n`、联网搜索或流式返回。多个候选图需要独立请求，并按用户要求的数量控制调用。
-- 透明模式要求单张已有透明通道的输入；不能解释成文生透明图或JPEG自动抠图。
+- Seedream 5.5 普通请求一次生成一张图；不支持组图、`n`、联网搜索或流式返回。多个候选图需要独立请求，并按用户要求的数量控制调用。
+- 原生透明图支持文生图和最多 10 图参考生成，输入可为 JPEG 等无透明通道图片；`transparent` 不能与 JPEG 输出组合。拆图禁止传入 `background`。
+- 拆图最多返回 1 张底图和 99 个图层；`max_images` 包含底图，不保证实际输出达到上限。富文本 OCR 仅针对规整文字，不能保证艺术字、手写体可识别。
 - 没有 `/images/edits`、multipart、mask、seed、quality、strength 或 negative_prompt 字段。负向约束、风格和局部操作写进自然语言prompt。
 - 仅支持1K/1.5K/2K或受约束的精确尺寸；不要从其他Seedream型号复制4K、组图或搜索能力。

@@ -111,15 +111,15 @@ def layer_response(data: list[dict[str, Any]]) -> bool:
 def response_items(response: dict[str, Any], *, layers: bool | None = None) -> list[dict[str, Any]]:
     require(not response.get("error"), f"API 错误：{response.get('error')}")
     data = response.get("data")
-    require(isinstance(data, list) and 1 <= len(data) <= 17, "响应 data 必须包含 1–17 张图片")
+    require(isinstance(data, list) and 1 <= len(data) <= 100, "响应 data 必须包含 1–100 张图片")
     require(all(isinstance(item, dict) for item in data), "响应 data 元素必须是对象")
     if layers is None:
         layers = layer_response(data)
     if layers is False:
-        require(len(data) == 1, "Pro 普通生成应返回一张图片")
+        require(len(data) == 1, "Seedream 5.5 普通生成应返回一张图片")
     if layers is True:
         indices = [item.get("z_index") for item in data]
-        require(all(type(z) is int and 0 <= z <= 16 for z in indices), "图层 z_index 无效")
+        require(all(type(z) is int and 0 <= z <= 99 for z in indices), "图层 z_index 无效")
         require(0 in indices and len(set(indices)) == len(indices), "缺少底图或图层 z_index 重复")
         for item in data:
             if item["z_index"] > 0:
@@ -153,7 +153,7 @@ def write_image(directory: Path, index: int, item: dict[str, Any], timeout: floa
     require(item.get("output_format", actual) == actual, "响应 output_format 与实际图片不符")
     actual_size = f"{info['width']}x{info['height']}"
     require(item.get("size", actual_size) == actual_size, "响应 size 与实际图片尺寸不符")
-    alpha_required = transparent or layers and item.get("z_index", 0) > 0
+    alpha_required = transparent or item.get("background") == "transparent" or layers and item.get("z_index", 0) > 0
     require(not alpha_required or actual == "png" and info["alpha"], "预期透明 PNG，但产物无透明通道")
     path = directory / f"image-{index:02d}.{actual}"
     fd, name = tempfile.mkstemp(prefix=".image-", dir=directory)
